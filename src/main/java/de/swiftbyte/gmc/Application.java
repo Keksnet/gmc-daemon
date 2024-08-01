@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import de.swiftbyte.gmc.utils.ConfigUtils;
 import de.swiftbyte.gmc.utils.ConnectionState;
+import de.swiftbyte.gmc.utils.OsUtils;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jline.terminal.Terminal;
@@ -83,6 +84,14 @@ public class Application {
         if (List.of(args).contains("-debug")) rootLogger.setLevel(Level.DEBUG);
         else rootLogger.setLevel(Level.INFO);
 
+        if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.LINUX && System.getenv("NO_UNSTABLE_LINUX_WARNING") == null) {
+            log.warn("###################################");
+            log.warn("#    LINUX SUPPORT IS UNSTABLE    #");
+            log.warn("###################################");
+            log.warn("Please note that Linux support is currently unstable and may not work as expected.");
+            log.warn("If you encounter any issues, please report them to the developers.");
+        }
+
         SpringApplication.run(Application.class);
     }
 
@@ -98,6 +107,10 @@ public class Application {
         else rootLogger.setLevel(Level.INFO);
 
         log.debug("Daemon ready... Version: {}", version);
+
+        if (OsUtils.hasForcedOs()) {
+            log.warn("Using forced OS: {}", OsUtils.getOsName());
+        }
 
         node = new Node();
         node.start();

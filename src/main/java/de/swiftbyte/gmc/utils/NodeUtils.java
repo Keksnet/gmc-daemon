@@ -28,11 +28,11 @@ import java.util.HashMap;
 @Slf4j
 public class NodeUtils {
 
-    public static final String TMP_PATH = "tmp/",
-            DAEMON_LATEST_DOWNLOAD_URL = "https://github.com/swiftbytegbr/gmc-daemon/releases/latest/download/gmc-daemon-setup.exe",
-            STEAM_CMD_DIR = "steamcmd/",
-            STEAM_CMD_PATH = STEAM_CMD_DIR + "steamcmd.exe",
-            STEAM_CMD_DOWNLOAD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
+    public static final String TMP_PATH = ConfigUtils.get("tmp-path", "./tmp/"),
+            DAEMON_LATEST_DOWNLOAD_URL = "https://github.com/swiftbytegbr/gmc-daemon/releases/latest/download/" + getDaemonSetupName(),
+            STEAM_CMD_DIR = ConfigUtils.get("steamcmd-install-dir", "./steamcmd/"),
+            STEAM_CMD_PATH = STEAM_CMD_DIR + getSteamCmdExecutable(),
+            STEAM_CMD_DOWNLOAD_URL = "https://steamcdn-a.akamaihd.net/client/installer/" + getSteamCmdArchiveName();
 
     public static Path getSteamCmdPath() {
         return Paths.get(STEAM_CMD_PATH);
@@ -87,11 +87,40 @@ public class NodeUtils {
 
         File tmp = new File(TMP_PATH);
         try {
+            String steamArchiveName = getSteamCmdArchiveName();
             FileUtils.copyURLToFile(
                     new URL(STEAM_CMD_DOWNLOAD_URL),
-                    new File(TMP_PATH + "steamcmd.zip"));
+                    new File(TMP_PATH + steamArchiveName));
 
-            ZipUtil.unpack(new File(TMP_PATH + "steamcmd.zip"), new File(STEAM_CMD_DIR));
+            if (steamArchiveName.endsWith(".zip")) {
+                ZipUtil.unpack(new File(TMP_PATH + steamArchiveName), new File(STEAM_CMD_DIR));
+            } else if (steamArchiveName.endsWith(".tar.gz")) {
+                if (OsUtils.OPERATING_SYSTEM != OsUtils.OperatingSystem.LINUX) {
+                    throw new UnsupportedOperationException("Unsupported operating system for tar.gz archives: " + OsUtils.OPERATING_SYSTEM);
+                }
+
+                log.debug("Extracting .tar.gz archive using system utilities...");
+                Path steamCmdPath = Path.of(STEAM_CMD_DIR);
+                if (!Files.exists(steamCmdPath)) {
+                    Files.createDirectories(steamCmdPath);
+                }
+
+                ProcessBuilder processBuilder = new ProcessBuilder("tar", "-xvzf", TMP_PATH + steamArchiveName, "-C", STEAM_CMD_DIR);
+                processBuilder.redirectOutput(new File("./log/steamcmd-tar.log"));
+                processBuilder.redirectError(new File("./log/steamcmd-tar-error.log"));
+                int exitCode = processBuilder.start().waitFor();
+
+                if (exitCode == 127) {
+                    throw new UnsupportedOperationException("tar command not found. Please install tar and try again.");
+                }
+
+                if (exitCode != 0) {
+                    throw new UnsupportedOperationException("An error occurred while extracting the SteamCMD archive. See log/steamcmd-tar-error.log for more information. Exit code: " + exitCode);
+                }
+
+                log.debug("Extracted .tar.gz archive successfully!");
+            }
+
             FileUtils.deleteDirectory(tmp);
             log.info("SteamCMD successfully installed!");
         } catch (IOException e) {
@@ -102,16 +131,28 @@ public class NodeUtils {
                 log.warn("An error occurred while deleting the temporary directory.", ex);
             }
             System.exit(1);
+        } catch (UnsupportedOperationException e) {
+            log.error("An operating system specific operation failed while trying to install SteamCMD.", e);
+            try {
+                FileUtils.deleteDirectory(tmp);
+            } catch (IOException ex) {
+                log.warn("An error occurred while deleting the temporary directory.", ex);
+            }
+            System.exit(1);
+        } catch (InterruptedException e) {
+            log.error("An error occurred while extracting the SteamCMD archive.", e);
+            System.exit(1);
         }
     }
 
     public static void downloadLatestDaemonInstaller() {
         File tmp = new File(TMP_PATH);
 
+        String daemonSetupName = getDaemonSetupName();
         try {
             FileUtils.copyURLToFile(
                     new URL(DAEMON_LATEST_DOWNLOAD_URL),
-                    new File(TMP_PATH + "latest-installer.exe"));
+                    new File(TMP_PATH + daemonSetupName));
 
             log.debug("Update successfully downloaded!");
         } catch (IOException e) {
@@ -170,6 +211,49 @@ public class NodeUtils {
         } catch (IOException e) {
             log.error("An unknown error occurred while caching information.", e);
         }
+    }
 
+    public static String getDaemonSetupName() {
+        switch (OsUtils.OPERATING_SYSTEM) {
+            case LINUX -> {
+                return "gmc-daemon-setup.sh";
+            }
+
+            case WINDOWS -> {
+                return "gmc-daemon-setup.exe";
+            }
+
+            default -> throw new IllegalStateException("Unsupported operating system: " + OsUtils.OPERATING_SYSTEM);
+        }
+    }
+
+    private static String getSteamCmdArchiveName() {
+        switch (OsUtils.OPERATING_SYSTEM) {
+            case LINUX -> {
+                return "steamcmd_linux.tar.gz";
+            }
+
+            case WINDOWS -> {
+                return "steamcmd.zip";
+            }
+
+            default ->
+                    throw new IllegalStateException("Unsupported operating system: " + OsUtils.OPERATING_SYSTEM);
+        }
+    }
+
+    private static String getSteamCmdExecutable() {
+        switch (OsUtils.OPERATING_SYSTEM) {
+            case LINUX -> {
+                return "steamcmd.sh";
+            }
+
+            case WINDOWS -> {
+                return "steamcmd.exe";
+            }
+
+            default ->
+                throw new IllegalStateException("Unsupported operating system: " + OsUtils.OPERATING_SYSTEM);
+        }
     }
 }

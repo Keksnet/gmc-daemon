@@ -25,8 +25,11 @@ import oshi.SystemInfo;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 
@@ -128,21 +131,23 @@ public class Node extends Thread {
         log.debug("Start joining a team...");
         setConnectionState(ConnectionState.JOINING);
 
+        Integer token;
+        token = tryGetTokenHeadless();
+        if (token != null) {
+            joinTeamWithValidatedToken(token);
+            return;
+        }
+
         ComponentContext<?> context = NodeUtils.promptForInviteToken();
-
         try {
-
-            Integer token = NodeUtils.getValidatedToken(context.get("inviteToken"));
+            token = NodeUtils.getValidatedToken(context.get("inviteToken"));
 
             while (token == null) {
                 log.error("The entered token does not match the expected pattern. Please enter it as follows: XXX-XXX");
                 token = NodeUtils.getValidatedToken(NodeUtils.promptForInviteToken().get("inviteToken"));
             }
 
-            joinTeamWithValidatedToken(token);
-
         } catch (NoSuchElementException e) {
-
             setConnectionState(ConnectionState.NOT_JOINED);
 
             if (Application.getTerminal() instanceof DumbTerminal) {
@@ -152,6 +157,25 @@ public class Node extends Thread {
                 joinTeam();
             }
         }
+
+        joinTeamWithValidatedToken(token);
+    }
+
+    public Integer tryGetTokenHeadless() {
+        String inviteToken = System.getenv("GMC_INVITE_TOKEN");
+        if (inviteToken == null) {
+            return null;
+        }
+
+        log.debug("Got invite token from environment variable: '{}'", inviteToken);
+        Integer token = NodeUtils.getValidatedToken(inviteToken);
+
+        if (token == null) {
+            log.error("The invite token is incorrect. Please check your input.");
+            return null;
+        }
+
+        return token;
     }
 
     public void joinTeam(String token) {
@@ -212,7 +236,6 @@ public class Node extends Thread {
     }
 
     public void connect() {
-
         if (connectionState == ConnectionState.RECONNECTING) {
             log.info("Reconnecting to backend...");
             StompHandler.initialiseStomp();
@@ -239,10 +262,36 @@ public class Node extends Thread {
 
             log.debug("Starting installer and restarting daemon...");
 
+            String daemonSetupName = NodeUtils.getDaemonSetupName();
             try {
-                String installCommand = "\"" + CommonUtils.convertPathSeparator(Path.of(NodeUtils.TMP_PATH + "latest-installer.exe").toAbsolutePath()) + "\" /SILENT /SUPPRESSMSGBOXES /LOG=\"" + CommonUtils.convertPathSeparator(Path.of("log/latest-installation.log").toAbsolutePath()) + "\"";
+                List<String> installCommand = new ArrayList<>();
+
+                // invoke the installer
+                installCommand.add(CommonUtils.convertPathSeparator(Path.of(NodeUtils.TMP_PATH, daemonSetupName).toAbsolutePath()));
+
+                Path logFile = Path.of("log/latest-installation.log");
+                if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.WINDOWS) {
+                    // silent mode
+                    installCommand.add("/SILENT");
+                    installCommand.add("/SUPPRESSMSGBOXES");
+
+                    // log file
+                    installCommand.add("/LOG=" + CommonUtils.convertPathSeparator(logFile.toAbsolutePath()));
+                }
+
                 log.debug("Starting installer with command: '{}'", installCommand);
-                Runtime.getRuntime().exec(installCommand);
+                Process proc = Runtime.getRuntime().exec(installCommand.toArray(new String[0]));
+
+                if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.LINUX) {
+                    // redirecting output to log file on linux
+                    InputStream inputStream = proc.getInputStream();
+                    Files.copy(inputStream, logFile);
+
+                    // redirecting error output to log file on linux
+                    InputStream errorStream = proc.getErrorStream();
+                    Files.copy(errorStream, Path.of("log/latest-installation-error.log"));
+                }
+
                 System.exit(0);
             } catch (IOException e) {
                 log.error("An error occurred while starting the installer.", e);
@@ -281,7 +330,6 @@ public class Node extends Thread {
     }
 
     private final Runnable updateRunnable = () -> {
-
         if (connectionState == ConnectionState.CONNECTED) {
 
             NodeUtils.cacheInformation(this);

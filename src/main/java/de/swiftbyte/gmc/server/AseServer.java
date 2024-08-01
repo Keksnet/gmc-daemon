@@ -5,6 +5,7 @@ import de.swiftbyte.gmc.common.entity.GameServerState;
 import de.swiftbyte.gmc.common.model.SettingProfile;
 import de.swiftbyte.gmc.service.FirewallService;
 import de.swiftbyte.gmc.utils.CommonUtils;
+import de.swiftbyte.gmc.utils.OsUtils;
 import de.swiftbyte.gmc.utils.ServerUtils;
 import de.swiftbyte.gmc.utils.SettingProfileUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +39,17 @@ public class AseServer extends ArkServer {
         rconPort = settingProfileUtils.getSettingAsInt("ServerSettings", "RconPort", 27020);
 
         if (!overrideAutoStart) {
-            PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Win64/ArkAscendedServer.exe"));
+            switch (OsUtils.OPERATING_SYSTEM) {
+                case WINDOWS:
+                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Win64/ShooterGameServer.exe"));
+                    break;
+                case LINUX:
+                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Linux/ShooterGameServer"));;
+                    break;
+                default:
+                    log.error("Unknown operating system '{}'.", OsUtils.OPERATING_SYSTEM);
+            }
+
             if (PID == null && settings.getGmcSettings().isStartOnBoot()) start().queue();
             else if (PID != null) {
                 log.debug("Server '{}' with PID {} is already running. Setting state to ONLINE.", PID, friendlyName);
@@ -58,7 +69,17 @@ public class AseServer extends ArkServer {
         rconPort = settingProfileUtils.getSettingAsInt("ServerSettings", "RconPort", 27020);
 
         if (!overrideAutoStart) {
-            PID = CommonUtils.getProcessPID(this.installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Win64/"));
+            switch (OsUtils.OPERATING_SYSTEM) {
+                case WINDOWS:
+                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Win64/ShooterGameServer.exe"));
+                    break;
+                case LINUX:
+                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Linux/ShooterGameServer"));;
+                    break;
+                default:
+                    log.error("Unknown operating system '{}'.", OsUtils.OPERATING_SYSTEM);
+            }
+
             if (PID == null && settings.getGmcSettings().isStartOnBoot()) start().queue();
             else if (PID != null) {
                 log.debug("Server '{}' with PID {} is already running. Setting state to ONLINE.", PID, friendlyName);
@@ -88,9 +109,22 @@ public class AseServer extends ArkServer {
         }
     }
 
-    @SuppressWarnings("DuplicatedCode")
-    public void writeStartupBatch() {
+    @Override
+    public void writeStartupScript() {
+        switch (OsUtils.OPERATING_SYSTEM) {
+            case WINDOWS:
+                writeStartupBatch();
+                break;
+            case LINUX:
+                writeStartupShellScript();
+                break;
+            default:
+                log.error("Unknown startup script type '{}'.", OsUtils.OPERATING_SYSTEM);
+        }
+    }
 
+    @SuppressWarnings("DuplicatedCode")
+    private void writeStartupBatch() {
         SettingProfile settings = getSettings();
 
         if (CommonUtils.isNullOrEmpty(settings.getGmcSettings().getMap())) {
@@ -136,6 +170,59 @@ public class AseServer extends ArkServer {
 
         } catch (IOException e) {
             log.error("An unknown exception occurred while writing the startup batch for server '{}'.", getFriendlyName(), e);
+        }
+    }
+
+    @SuppressWarnings("DuplicatedCode")
+    private void writeStartupShellScript() {
+        SettingProfile settings = getSettings();
+
+        if (CommonUtils.isNullOrEmpty(settings.getGmcSettings().getMap())) {
+            log.error("Map is not set for server '{}'. Falling back to default map.", getFriendlyName());
+            settings.getGmcSettings().setMap("TheIsland");
+        }
+
+        SettingProfileUtils spu = new SettingProfileUtils(settings.getGameUserSettings());
+
+        setRconPort(spu.getSettingAsInt("ServerSettings", "RCONPort", 27020));
+        setRconPassword(spu.getSetting("ServerSettings", "ServerAdminPassword", "gmc-rp-" + UUID.randomUUID()));
+
+        List<String> requiredLaunchParameters1 = getRequiredLaunchArgs1(settings.getGmcSettings().getMap());
+        List<String> requiredLaunchParameters2 = getRequiredLaunchArgs2();
+
+        String realStartPostArguments = ServerUtils.generateServerArgs(
+                settings.getQuestionMarkParams() == null || settings.getQuestionMarkParams().isEmpty() ? new ArrayList<>() : ServerUtils.generateArgListFromMap(settings.getQuestionMarkParams()),
+                settings.getHyphenParams() == null || settings.getQuestionMarkParams().isEmpty() ? new ArrayList<>() : ServerUtils.generateArgListFromMap(settings.getHyphenParams()),
+                requiredLaunchParameters1,
+                requiredLaunchParameters2
+        );
+
+        String changeDirectoryCommand = "cd \"" + CommonUtils.convertPathSeparator(getInstallDir()) + "\\ShooterGame\\Binaries\\Win64\"";
+
+        String serverExeName = "ShooterGameServer";
+
+        if (Files.exists(Path.of(getInstallDir() + "/ShooterGame/Binaries/Win64/AseApiLoader.exe"))) {
+            log.warn("AseApiLoader is not supported on Linux. Please add a file named 'AseApiLoader' to the server directory. This file has to start Ase with api support.");
+        }
+
+        if (Files.exists(Path.of(getInstallDir() + "/ShooterGame/Binaries/Win64/AseApiLoader")))
+            serverExeName = "AseApiLoader";
+
+        String startCommand = "\"" + CommonUtils.convertPathSeparator(getInstallDir() + "/ShooterGame/Binaries/Win64/" + serverExeName) + "\""
+                + " " + realStartPostArguments;
+        log.debug("Writing startup shell script for server {} with command '{}'", getFriendlyName(), startCommand);
+
+        try {
+            FileWriter fileWriter = new FileWriter(getInstallDir() + "/start.sh");
+            PrintWriter printWriter = new PrintWriter(fileWriter);
+
+            printWriter.println(changeDirectoryCommand);
+            printWriter.println(startCommand);
+            printWriter.println("exit");
+            printWriter.close();
+
+        } catch (IOException e) {
+            log.error("An unknown exception occurred while writing the startup shell script for server '{}'.", getFriendlyName(), e);
         }
     }
 

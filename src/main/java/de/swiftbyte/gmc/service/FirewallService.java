@@ -1,6 +1,7 @@
 package de.swiftbyte.gmc.service;
 
 import de.swiftbyte.gmc.utils.CommonUtils;
+import de.swiftbyte.gmc.utils.OsUtils;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -12,6 +13,10 @@ import java.util.stream.Collectors;
 public class FirewallService {
 
     public static void allowPort(String serverName, Path executablePath, List<Integer> ports) {
+        if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.LINUX) {
+            log.warn("Firewall management is not supported on Linux.");
+            return;
+        }
 
         String portsString = ports.stream()
                 .map(String::valueOf)
@@ -42,6 +47,10 @@ public class FirewallService {
     }
 
     public static void removePort(String serverName) {
+        if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.LINUX) {
+            log.warn("Firewall management is not supported on Linux.");
+            return;
+        }
 
         String ruleName = String.format("ARK GMC: %s", serverName);
 

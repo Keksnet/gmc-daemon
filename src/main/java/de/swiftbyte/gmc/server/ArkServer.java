@@ -9,6 +9,7 @@ import de.swiftbyte.gmc.service.FirewallService;
 import de.swiftbyte.gmc.stomp.StompHandler;
 import de.swiftbyte.gmc.utils.CommonUtils;
 import de.swiftbyte.gmc.utils.NodeUtils;
+import de.swiftbyte.gmc.utils.OsUtils;
 import de.swiftbyte.gmc.utils.ServerUtils;
 import de.swiftbyte.gmc.utils.action.AsyncAction;
 import lombok.Setter;
@@ -19,6 +20,8 @@ import xyz.astroark.exception.AuthenticationException;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 @Slf4j
@@ -37,12 +40,33 @@ public abstract class ArkServer extends GameServer {
     public AsyncAction<Boolean> install() {
         return () -> {
             setState(GameServerState.CREATING);
-            String installCommand = "cmd /c start \"steamcmd\" \"" + CommonUtils.convertPathSeparator(NodeUtils.getSteamCmdPath().toAbsolutePath()) + "\""
-                    + " +force_install_dir \"" + CommonUtils.convertPathSeparator(installDir.toAbsolutePath()) + "\""
-                    + " +login anonymous +app_update " + getGameId() + " validate +quit";
-            log.debug("Starting server installation with command {}", installCommand);
+            List<String> installCommand = new ArrayList<>();
+
+            if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.WINDOWS) {
+                // invoke steamcmd.exe
+                installCommand.add("cmd");
+                installCommand.add("/c");
+                installCommand.add("start");
+                installCommand.add("\"steamcmd\"");
+                installCommand.add(CommonUtils.convertPathSeparator(NodeUtils.getSteamCmdPath().toAbsolutePath().toString()));
+            } else if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.LINUX) {
+                // invoke steamcmd.sh
+                installCommand.add("sh");
+                installCommand.add(CommonUtils.convertPathSeparator(NodeUtils.getSteamCmdPath().toAbsolutePath().toString()));
+            }
+
+            installCommand.add("+force_install_dir");
+            installCommand.add(CommonUtils.convertPathSeparator(installDir.toAbsolutePath().toString()));
+            installCommand.add("+login");
+            installCommand.add("anonymous");
+            installCommand.add("+app_update");
+            installCommand.add(String.valueOf(getGameId()));
+            installCommand.add("validate");
+            installCommand.add("+quit");
+
+            log.debug("Starting server installation with command {}", String.join(" ", installCommand));
             try {
-                Process process = Runtime.getRuntime().exec(installCommand);
+                Process process = Runtime.getRuntime().exec(installCommand.toArray(new String[0]));
 
                 Scanner scanner = new Scanner(process.getInputStream());
 
@@ -124,11 +148,25 @@ public abstract class ArkServer extends GameServer {
             }
 
             new Thread(() -> {
-                writeStartupBatch();
+                writeStartupScript();
                 ServerUtils.writeIniFiles(this, installDir);
                 try {
-                    log.debug("cmd /c start \"{}", CommonUtils.convertPathSeparator(installDir + "/start.bat\""));
-                    serverProcess = Runtime.getRuntime().exec("cmd /c start /min \"" + "\" \"" + CommonUtils.convertPathSeparator(installDir + "/start.bat\""));
+                    List<String> installCommand = new ArrayList<>();
+
+                    if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.WINDOWS) {
+                        installCommand.add("cmd");
+                        installCommand.add("/c");
+                        installCommand.add("start");
+                        installCommand.add("\"" + friendlyName + "\"");
+                        installCommand.add("/min");
+                        installCommand.add(CommonUtils.convertPathSeparator(installDir + "/start.bat"));
+                    } else if (OsUtils.OPERATING_SYSTEM == OsUtils.OperatingSystem.LINUX) {
+                        installCommand.add("sh");
+                        installCommand.add(CommonUtils.convertPathSeparator(installDir + "/start.sh"));
+                    }
+
+                    log.debug("Starting server with command {}", String.join(" ", installCommand));
+                    serverProcess = Runtime.getRuntime().exec(installCommand.toArray(new String[0]));
                     Scanner scanner = new Scanner(serverProcess.getInputStream());
                     while (scanner.hasNextLine()) {
                     }
@@ -212,7 +250,8 @@ public abstract class ArkServer extends GameServer {
     @Override
     public void update() {
         if (PID == null && installDir != null)
-            PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Win64/"));
+            // get process if of server regardless of the operating system
+            PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/"));
 
         switch (state) {
             case INITIALIZING -> {
@@ -285,5 +324,5 @@ public abstract class ArkServer extends GameServer {
         }
     }
 
-    public abstract void writeStartupBatch();
+    public abstract void writeStartupScript();
 }
