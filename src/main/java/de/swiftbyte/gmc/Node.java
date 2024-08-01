@@ -147,6 +147,7 @@ public class Node extends Thread {
                 token = NodeUtils.getValidatedToken(NodeUtils.promptForInviteToken().get("inviteToken"));
             }
 
+            joinTeamWithValidatedToken(token);
         } catch (NoSuchElementException e) {
             setConnectionState(ConnectionState.NOT_JOINED);
 
@@ -157,8 +158,6 @@ public class Node extends Thread {
                 joinTeam();
             }
         }
-
-        joinTeamWithValidatedToken(token);
     }
 
     public Integer tryGetTokenHeadless() {

@@ -158,7 +158,7 @@ public class NodeUtils {
         String daemonSetupName = getDaemonSetupName();
         try {
             FileUtils.copyURLToFile(
-                    new URL(DAEMON_LATEST_DOWNLOAD_URL),
+                    new URI(DAEMON_LATEST_DOWNLOAD_URL).toURL(),
                     new File(TMP_PATH + daemonSetupName));
 
             log.debug("Update successfully downloaded!");
@@ -169,6 +169,9 @@ public class NodeUtils {
             } catch (IOException ex) {
                 log.warn("An error occurred while deleting the temporary directory.", ex);
             }
+        } catch (URISyntaxException e) {
+            // Let the daemon fail because there is no way we can recover from here!
+            throw new RuntimeException(e);
         }
     }
 
