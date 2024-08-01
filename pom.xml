@@ -176,6 +176,7 @@
                             <administratorRequired>true</administratorRequired>
                             <platform>windows</platform>
                             <jreMinVersion>21</jreMinVersion>
+                            <jdkPath>jdk</jdkPath>
                             <vmArgs>--enable-native-access=ALL-UNNAMED</vmArgs>
                             <winConfig>
                                 <headerType>console</headerType>
