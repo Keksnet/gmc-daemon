@@ -44,7 +44,7 @@ public class AseServer extends ArkServer {
                     PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Win64/ShooterGameServer.exe"));
                     break;
                 case LINUX:
-                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Linux/ShooterGameServer"));;
+                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Linux/ShooterGameServer"));
                     break;
                 default:
                     log.error("Unknown operating system '{}'.", OsUtils.OPERATING_SYSTEM);
@@ -74,7 +74,7 @@ public class AseServer extends ArkServer {
                     PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Win64/ShooterGameServer.exe"));
                     break;
                 case LINUX:
-                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Linux/ShooterGameServer"));;
+                    PID = CommonUtils.getProcessPID(installDir + CommonUtils.convertPathSeparator("/ShooterGame/Binaries/Linux/ShooterGameServer"));
                     break;
                 default:
                     log.error("Unknown operating system '{}'.", OsUtils.OPERATING_SYSTEM);

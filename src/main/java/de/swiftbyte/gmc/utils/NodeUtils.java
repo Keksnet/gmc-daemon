@@ -13,12 +13,15 @@ import de.swiftbyte.gmc.server.AseServer;
 import de.swiftbyte.gmc.server.GameServer;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
+import org.springframework.lang.NonNull;
 import org.springframework.shell.component.context.ComponentContext;
 import org.springframework.shell.component.flow.ComponentFlow;
 import org.zeroturnaround.zip.ZipUtil;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,6 +31,7 @@ import java.util.HashMap;
 @Slf4j
 public class NodeUtils {
 
+    @NonNull
     public static final String TMP_PATH = ConfigUtils.get("tmp-path", "./tmp/"),
             DAEMON_LATEST_DOWNLOAD_URL = "https://github.com/swiftbytegbr/gmc-daemon/releases/latest/download/" + getDaemonSetupName(),
             STEAM_CMD_DIR = ConfigUtils.get("steamcmd-install-dir", "./steamcmd/"),
@@ -89,7 +93,7 @@ public class NodeUtils {
         try {
             String steamArchiveName = getSteamCmdArchiveName();
             FileUtils.copyURLToFile(
-                    new URL(STEAM_CMD_DOWNLOAD_URL),
+                    new URI(STEAM_CMD_DOWNLOAD_URL).toURL(),
                     new File(TMP_PATH + steamArchiveName));
 
             if (steamArchiveName.endsWith(".zip")) {
@@ -142,6 +146,9 @@ public class NodeUtils {
         } catch (InterruptedException e) {
             log.error("An error occurred while extracting the SteamCMD archive.", e);
             System.exit(1);
+        } catch (URISyntaxException e) {
+            // Let the daemon fail because there is no way we can recover from here!
+            throw new RuntimeException(e);
         }
     }
 
