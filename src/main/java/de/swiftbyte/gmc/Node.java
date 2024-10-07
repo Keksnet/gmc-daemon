@@ -7,6 +7,11 @@ import de.swiftbyte.gmc.common.packet.entity.NodeSettings;
 import de.swiftbyte.gmc.common.packet.entity.ResourceUsage;
 import de.swiftbyte.gmc.common.packet.node.NodeHeartbeatPacket;
 import de.swiftbyte.gmc.common.packet.node.NodeLogoutPacket;
+import de.swiftbyte.gmc.plugins.PluginLoader;
+import de.swiftbyte.gmc.plugins.PluginManager;
+import de.swiftbyte.gmc.plugins.event.node.NodeHeartbeatEvent;
+import de.swiftbyte.gmc.plugins.event.node.NodeStartupCompleteEvent;
+import de.swiftbyte.gmc.plugins.event.node.NodeStateChangeEvent;
 import de.swiftbyte.gmc.server.GameServer;
 import de.swiftbyte.gmc.service.BackupService;
 import de.swiftbyte.gmc.stomp.StompHandler;
@@ -70,6 +75,7 @@ public class Node extends Thread {
         getCachedNodeInformation();
         BackupService.initialiseBackupService();
         NodeUtils.checkInstallation();
+        initializePlugins();
     }
 
     private void getCachedNodeInformation() {
@@ -107,6 +113,17 @@ public class Node extends Thread {
         }
     }
 
+    private void initializePlugins() {
+        if (PluginManager.PLUGIN_SYSTEM_ENABLED) {
+            log.info("Plugin system is enabled. Loading plugins from {}", Path.of("plugins").toAbsolutePath());
+            try {
+                PluginLoader.getInstance().loadPlugins();
+            } catch (IOException e) {
+                log.error("Loading plugins failed.", e);
+            }
+        }
+    }
+
     public void shutdown() {
         if (connectionState == ConnectionState.DELETING) return;
         NodeLogoutPacket logoutPacket = new NodeLogoutPacket();
@@ -122,6 +139,11 @@ public class Node extends Thread {
         }
         log.debug("Caching information...");
         NodeUtils.cacheInformation(this);
+
+        if (PluginManager.PLUGIN_SYSTEM_ENABLED) {
+            log.info("Processing shutdown hook for plugins...");
+            PluginLoader.getInstance().executePluginShutdown();
+        }
     }
 
     public void joinTeam() {
@@ -278,6 +300,11 @@ public class Node extends Thread {
     public void run() {
         super.run();
         Application.getExecutor().scheduleAtFixedRate(updateRunnable, 0, 10, TimeUnit.SECONDS);
+
+        if (PluginManager.PLUGIN_SYSTEM_ENABLED) {
+            NodeStartupCompleteEvent e = new NodeStartupCompleteEvent(this);
+            PluginManager.getInstance().dispatchEvent(e);
+        }
     }
 
     private final Runnable updateRunnable = () -> {
@@ -317,11 +344,23 @@ public class Node extends Thread {
             gameServerUpdates.add(gameServerUpdate);
         }
         heartbeatPacket.setGameServers(gameServerUpdates);
+
+        if (PluginManager.PLUGIN_SYSTEM_ENABLED) {
+            NodeHeartbeatEvent e = new NodeHeartbeatEvent(Node.INSTANCE, heartbeatPacket);
+            PluginManager.getInstance().dispatchEvent(e);
+        }
+
         return heartbeatPacket;
     }
 
     public void setConnectionState(ConnectionState connectionState) {
         log.debug("Connection state changed from " + this.connectionState + " to " + connectionState.name());
+
+        if (PluginManager.PLUGIN_SYSTEM_ENABLED) {
+            NodeStateChangeEvent e = new NodeStateChangeEvent(this, this.connectionState, connectionState);
+            PluginManager.getInstance().dispatchEvent(e);
+        }
+
         this.connectionState = connectionState;
     }
 }

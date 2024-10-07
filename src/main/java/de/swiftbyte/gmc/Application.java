@@ -33,8 +33,6 @@ public class Application {
         return ConfigUtils.get("backend-secure", "true").equals("true");
     }
 
-    ;
-
     public static String getBackendUrl() {
         if (isSecure()) return "https://" + getBackendDomain();
         else return "http://" + getBackendDomain();
