@@ -79,7 +79,7 @@ public class PluginManager {
         listeners
                 .stream()
                 .filter(Objects::nonNull)
-                .sorted(Comparator.comparingInt(ListenerInfo::getPriority))
+                .sorted(Comparator.comparingInt(ListenerInfo::getPriority).reversed())
                 .forEach(listener -> {
             try {
                 listener.dispatchEvent(event);
