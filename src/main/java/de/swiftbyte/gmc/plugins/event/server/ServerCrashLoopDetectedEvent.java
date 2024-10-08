@@ -8,7 +8,7 @@ import lombok.Setter;
 
 @Getter
 @AllArgsConstructor
-public class ServerCrashEvent implements GmcEvent {
+public class ServerCrashLoopDetectedEvent implements GmcEvent {
 
     private final GameServer server;
     private final int restartCount;

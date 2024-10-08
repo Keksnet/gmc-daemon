@@ -5,6 +5,9 @@ import de.swiftbyte.gmc.Node;
 import de.swiftbyte.gmc.common.packet.entity.GameServerState;
 import de.swiftbyte.gmc.common.packet.entity.ServerSettings;
 import de.swiftbyte.gmc.common.packet.server.ServerStatePacket;
+import de.swiftbyte.gmc.plugins.PluginManager;
+import de.swiftbyte.gmc.plugins.event.server.ServerRestartEvent;
+import de.swiftbyte.gmc.plugins.event.server.ServerStateChangeEvent;
 import de.swiftbyte.gmc.service.FirewallService;
 import de.swiftbyte.gmc.stomp.StompHandler;
 import de.swiftbyte.gmc.utils.CommonUtils;
@@ -73,8 +76,17 @@ public abstract class GameServer {
     public abstract AsyncAction<Boolean> stop(boolean isRestart);
 
     public AsyncAction<Boolean> restart() {
+        ServerRestartEvent e = new ServerRestartEvent(this, "Server restart via API");
+        PluginManager.getInstance().dispatchEvent(e);
+        if (e.isCancelled()) {
+            log.debug("Server restart was aborted by plugin");
+            return () -> false;
+        }
+
         if (!CommonUtils.isNullOrEmpty(Node.INSTANCE.getServerStopMessage()))
             sendRconCommand("serverchat " + Node.INSTANCE.getServerRestartMessage());
+
+
         return () -> (stop(true).complete() && start().complete());
     }
 
@@ -96,8 +108,11 @@ public abstract class GameServer {
 
         log.debug("Changing state of server '" + friendlyName + "' from '" + this.state + "' to '" + state + "'.");
 
+        ServerStateChangeEvent e = new ServerStateChangeEvent(this, this.state, state);
+        PluginManager.getInstance().dispatchEvent(e);
+
         synchronized (this) {
-            this.state = state;
+            this.state = e.getNewState();
             this.notifyAll();
         }
 

@@ -6,14 +6,16 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Duration;
+
 @Getter
 @AllArgsConstructor
-public class ServerCrashEvent implements GmcEvent {
+public class ServerRconReceiveEvent implements GmcEvent {
 
     private final GameServer server;
-    private final int restartCount;
+    private final Duration requestDuration;
 
     @Setter
-    private boolean attemptNextRestart;
+    private String message;
 
 }

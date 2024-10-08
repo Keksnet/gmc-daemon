@@ -4,6 +4,8 @@ import de.swiftbyte.gmc.Node;
 import de.swiftbyte.gmc.common.packet.entity.GameServerState;
 import de.swiftbyte.gmc.common.packet.entity.ServerSettings;
 import de.swiftbyte.gmc.common.packet.server.ServerDeletePacket;
+import de.swiftbyte.gmc.plugins.PluginManager;
+import de.swiftbyte.gmc.plugins.event.server.*;
 import de.swiftbyte.gmc.service.BackupService;
 import de.swiftbyte.gmc.service.FirewallService;
 import de.swiftbyte.gmc.stomp.StompHandler;
@@ -20,6 +22,7 @@ import xyz.astroark.exception.AuthenticationException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Scanner;
 
 @Slf4j
@@ -65,6 +68,17 @@ public class AsaServer extends GameServer {
     public AsyncAction<Boolean> install() {
         return () -> {
             super.setState(GameServerState.CREATING);
+
+            ServerInstallEvent event = new ServerInstallEvent(this);
+            PluginManager.getInstance().dispatchEvent(event);
+
+            if (event.isCancelled()) {
+                // TODO: Abort server install gracefully
+                log.debug("Server install was aborted by plugin");
+                super.setState(GameServerState.UNKNOWN);
+                return false;
+            }
+
             String installCommand = "cmd /c start \"steamcmd\" \"" + CommonUtils.convertPathSeparator(NodeUtils.getSteamCmdPath().toAbsolutePath()) + "\""
                     + " +force_install_dir \"" + CommonUtils.convertPathSeparator(installDir.toAbsolutePath()) + "\""
                     + " +login anonymous +app_update " + STEAM_CMD_ID + " validate +quit";
@@ -130,6 +144,14 @@ public class AsaServer extends GameServer {
     @Override
     public AsyncAction<Boolean> abandon() {
         return () -> {
+            ServerAbandonEvent e = new ServerAbandonEvent(this);
+            PluginManager.getInstance().dispatchEvent(e);
+
+            if (e.isCancelled()) {
+                log.debug("Abandoning server {} was aborted by plugin", this.serverId);
+                return false;
+            }
+
             GameServer.removeServerById(serverId);
             updateScheduler.cancel(false);
             NodeUtils.cacheInformation(Node.INSTANCE);
@@ -139,11 +161,18 @@ public class AsaServer extends GameServer {
 
     @Override
     public AsyncAction<Boolean> start() {
-
         return () -> {
             ServerUtils.killServerProcess(PID);
 
             super.setState(GameServerState.INITIALIZING);
+
+            ServerStartupEvent event = new ServerStartupEvent(this);
+            PluginManager.getInstance().dispatchEvent(event);
+            if (event.isCancelled()) {
+                log.debug("Server startup was aborted by plugin");
+                super.setState(GameServerState.OFFLINE);
+                return false;
+            }
 
             if (!Files.exists(installDir)) {
                 super.setState(GameServerState.OFFLINE);
@@ -160,7 +189,14 @@ public class AsaServer extends GameServer {
                     while (scanner.hasNextLine()) {
                     }
 
-                    if (settings.isRestartOnCrash() && (state != GameServerState.OFFLINE && state != GameServerState.STOPPING)) {
+                    boolean serverCrashed = (state != GameServerState.OFFLINE && state != GameServerState.STOPPING);
+
+                    ServerCrashEvent e = new ServerCrashEvent(this, 0, serverCrashed && settings.isRestartOnCrash());
+                    if (serverCrashed) {
+                        PluginManager.getInstance().dispatchEvent(e);
+                    }
+
+                    if (e.isAttemptNextRestart()) {
                         super.setState(GameServerState.RESTARTING);
                     } else {
                         super.setState(GameServerState.OFFLINE);
@@ -253,7 +289,10 @@ public class AsaServer extends GameServer {
 
                     ServerUtils.killServerProcess(PID);
 
-                    if (settings.isRestartOnCrash()) {
+                    ServerCrashEvent e = new ServerCrashEvent(this, restartCounter, settings.isRestartOnCrash());
+                    PluginManager.getInstance().dispatchEvent(e);
+
+                    if (e.isAttemptNextRestart()) {
                         log.debug("Restarting server '" + friendlyName + "'...");
                         super.setState(GameServerState.RESTARTING);
                     } else {
@@ -265,11 +304,23 @@ public class AsaServer extends GameServer {
                 }
             }
             case RESTARTING -> {
-                if (restartCounter >= 3) {
+                boolean attemptNextRestart = restartCounter < 3;
+                if (PluginManager.PLUGIN_SYSTEM_ENABLED && restartCounter > 0) {
+                    // Only if the server did not start properly previously
+                    ServerCrashLoopDetectedEvent e = new ServerCrashLoopDetectedEvent(this, restartCounter, attemptNextRestart);
+                    PluginManager.getInstance().dispatchEvent(e);
+
+                    // Write the modified value back
+                    // This allows for custom crash loop code to be executed
+                    attemptNextRestart = e.isAttemptNextRestart();
+                }
+
+                if (attemptNextRestart) {
                     log.error("Server '" + friendlyName + "' crashed 3 times in a row. Restarting is aborted!");
                     super.setState(GameServerState.OFFLINE);
                     return;
                 }
+
                 restartCounter++;
                 log.debug("Server '" + friendlyName + "' is restarting...");
                 new Thread(() -> {
@@ -291,16 +342,32 @@ public class AsaServer extends GameServer {
 
     @Override
     public String sendRconCommand(String command) {
-        try {
-            if (rconPort == 0 || CommonUtils.isNullOrEmpty(rconPassword)) return null;
-            Rcon rcon = new Rcon("127.0.0.1", rconPort, rconPassword.getBytes());
-            return rcon.command(command);
-        } catch (IOException e) {
-            log.debug("Server '" + friendlyName + "' is offline.");
-            return null;
-        } catch (AuthenticationException e) {
-            log.error("Rcon authentication failed for server '" + friendlyName + "'.");
+        ServerRconSendEvent sendEvent = new ServerRconSendEvent(this, command);
+        PluginManager.getInstance().dispatchEvent(sendEvent);
+
+        if (sendEvent.isCancelled()) {
+            log.debug("Sending rcon command {} was aborted by plugin", command);
             return null;
         }
+
+        try {
+            if (rconPort == 0 || CommonUtils.isNullOrEmpty(rconPassword)) return null;
+            long startTimestamp = System.currentTimeMillis();
+
+            Rcon rcon = new Rcon("127.0.0.1", rconPort, rconPassword.getBytes());
+            String rconResponse = rcon.command(command);
+
+            long endTimestamp = System.currentTimeMillis();
+            ServerRconReceiveEvent receiveEvent = new ServerRconReceiveEvent(this, Duration.ofMillis(endTimestamp - startTimestamp), rconResponse);
+            PluginManager.getInstance().dispatchEvent(receiveEvent);
+
+            return receiveEvent.getMessage();
+        } catch (IOException e) {
+            log.debug("Server '" + friendlyName + "' is offline.");
+        } catch (AuthenticationException e) {
+            log.error("Rcon authentication failed for server '" + friendlyName + "'.");
+        }
+
+        return null;
     }
 }

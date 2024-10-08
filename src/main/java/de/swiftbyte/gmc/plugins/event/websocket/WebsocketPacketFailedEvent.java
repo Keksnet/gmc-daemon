@@ -3,17 +3,15 @@ package de.swiftbyte.gmc.plugins.event.websocket;
 import de.swiftbyte.gmc.common.packet.Packet;
 import de.swiftbyte.gmc.plugins.event.GmcEvent;
 import lombok.AllArgsConstructor;
-import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 
+@Setter
 @Getter
 @AllArgsConstructor
-public class WebsocketPacketReceiveEvent implements GmcEvent {
+public class WebsocketPacketFailedEvent implements GmcEvent {
 
-    private final String destination;
-
-    @Setter
-    private Packet websocketPacket;
+    private String destination;
+    private Packet packet;
 
 }

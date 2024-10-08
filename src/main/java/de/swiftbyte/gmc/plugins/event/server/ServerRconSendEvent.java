@@ -3,15 +3,16 @@ package de.swiftbyte.gmc.plugins.event.server;
 import de.swiftbyte.gmc.plugins.event.CancellableEvent;
 import de.swiftbyte.gmc.server.GameServer;
 import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.Setter;
 
 @Getter
 @AllArgsConstructor
-public class ServerRestartEvent extends CancellableEvent {
+public class ServerRconSendEvent extends CancellableEvent {
 
     private final GameServer server;
-    private final String reason;
+
+    @Setter
+    private String rconCommand;
 
 }

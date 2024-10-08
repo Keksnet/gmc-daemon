@@ -71,6 +71,8 @@ public class PluginManager {
     }
 
     public <T extends GmcEvent> void dispatchEvent(T event) {
+        if (!PLUGIN_SYSTEM_ENABLED) return;
+
         List<ListenerInfo> listeners = eventListeners.get(event.getClass().getName());
         if (listeners == null || listeners.isEmpty()) {
             return;

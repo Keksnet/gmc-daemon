@@ -6,8 +6,13 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.sun.management.OperatingSystemMXBean;
 import de.swiftbyte.gmc.Application;
 import de.swiftbyte.gmc.Node;
+import de.swiftbyte.gmc.common.packet.Packet;
 import de.swiftbyte.gmc.common.packet.entity.NodeData;
 import de.swiftbyte.gmc.common.packet.node.NodeLoginPacket;
+import de.swiftbyte.gmc.plugins.PluginManager;
+import de.swiftbyte.gmc.plugins.event.websocket.WebsocketPacketFailedEvent;
+import de.swiftbyte.gmc.plugins.event.websocket.WebsocketPacketReceiveEvent;
+import de.swiftbyte.gmc.plugins.event.websocket.WebsocketPacketSendEvent;
 import de.swiftbyte.gmc.utils.CommonUtils;
 import de.swiftbyte.gmc.utils.ConnectionState;
 import jakarta.websocket.ContainerProvider;
@@ -67,16 +72,36 @@ public class StompHandler {
         if (session == null) {
             if (Node.INSTANCE.getConnectionState() != ConnectionState.RECONNECTING)
                 log.error("Failed to send packet to " + destination + " because the session is null.");
+
+            WebsocketPacketFailedEvent e = new WebsocketPacketFailedEvent(destination, (Packet) payload);
+            PluginManager.getInstance().dispatchEvent(e);
+
             return;
         }
 
         if (!session.isConnected()) {
             log.error("Failed to send packet to " + destination + " because the session is not connected. Is the backend running?");
             Node.INSTANCE.setConnectionState(ConnectionState.RECONNECTING);
+
+            WebsocketPacketFailedEvent e = new WebsocketPacketFailedEvent(destination, (Packet) payload);
+            PluginManager.getInstance().dispatchEvent(e);
+
             return;
         }
 
-        session.send(destination, payload);
+        WebsocketPacketSendEvent e = new WebsocketPacketSendEvent(destination, (Packet) payload);
+        PluginManager.getInstance().dispatchEvent(e);
+
+        if (e.isCancelled()) {
+            log.debug("Sending websocket packet to {} was aborted by plugin", destination);
+            return;
+        }
+
+        session.send(e.getDestination(), e.getPacket());
+    }
+
+    public synchronized static void subscribe(String destination) {
+
     }
 
     public static void disconnect() {
@@ -170,6 +195,10 @@ public class StompHandler {
         public void handleFrame(StompHeaders headers, Object payload) {
             log.info("Received message: {}", payload);
             headers.keySet().forEach(key -> log.info("{}: {}", key, headers.get(key)));
+
+            WebsocketPacketReceiveEvent e = new WebsocketPacketReceiveEvent(headers.getDestination(), (Packet) payload);
+            PluginManager.getInstance().dispatchEvent(e);
+
             super.handleFrame(headers, payload);
         }
     }
