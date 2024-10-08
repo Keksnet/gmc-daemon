@@ -21,14 +21,12 @@ public class PluginMetaData {
 
     public final String description;
 
-    public final String[] DEBUG_loadClasses;
-
     public boolean validate() {
         return mainClass != null && name != null && version != null;
     }
 
     public static PluginMetaData empty() {
-        return new PluginMetaData("", "dummy", "0.0.0", null, null, null);
+        return new PluginMetaData("", "dummy", "0.0.0", null, null);
     }
 
 }

@@ -7,19 +7,26 @@ import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Properties;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 @Slf4j
 public class PluginLoader {
 
     private static PluginLoader instance;
+    private final List<GmcPlugin> loadedPlugins = new ArrayList<>();
+
+    private PluginLoader() {
+    }
 
     public static PluginLoader getInstance() {
         if (instance == null) {
@@ -28,10 +35,6 @@ public class PluginLoader {
 
         return instance;
     }
-
-    private PluginLoader() {}
-
-    private final List<GmcPlugin> loadedPlugins = new ArrayList<>();
 
     public void executePluginShutdown() {
         for (GmcPlugin plugin : loadedPlugins) {
@@ -68,9 +71,9 @@ public class PluginLoader {
                     return null;
                 }
 
-                plugin.getLogger().info("Successfully loaded plugin {}", path);
+                plugin.getLogger().info("Successfully loaded plugin {}", plugin.getMetaData().getName());
                 return plugin;
-            } catch (MalformedURLException e) {
+            } catch (IOException e) {
                 log.error("Failed to load plugin", e);
             }
 
@@ -99,30 +102,37 @@ public class PluginLoader {
                 .toList();
     }
 
-    private <T extends GmcPlugin> T loadPlugin(Path pluginPath) throws MalformedURLException {
-        try (URLClassLoader pluginClassLoader = new URLClassLoader(new URL[]{ pluginPath.toUri().toURL() }, ClassLoader.getSystemClassLoader())) {
-            InputStream inputStream = pluginClassLoader.getResourceAsStream("gmc-plugin.properties");
-            if (inputStream == null) {
-                log.warn("Could not load plugin {}. gmc-plugin.properties could not be read.", pluginPath);
+    private <T extends GmcPlugin> T loadPlugin(Path pluginPath) throws IOException {
+        PluginMetaData metaData;
+        try (JarFile jarFile = new JarFile(pluginPath.toFile())) {
+            JarEntry entry = jarFile.getJarEntry("gmc-plugin.properties");
+
+            if (entry == null) {
+                log.error("Failed to load plugin: gmc-plugin.properties was not present!");
                 return null;
             }
 
-            PluginMetaData config = getPluginConfig(inputStream);
-            inputStream.close();
+            try (InputStream is = jarFile.getInputStream(entry)) {
+                metaData = getPluginConfig(is);
+            }
+        }
 
-            Class<?> pluginClass = Class.forName(config.getMainClass(), true, pluginClassLoader);
+        Class<?> pluginClass = null;
+        try {
+            URLClassLoader pluginClassLoader = new URLClassLoader(new URL[]{pluginPath.toUri().toURL()}, ClassLoader.getSystemClassLoader());
+            pluginClass = Class.forName(metaData.getMainClass(), true, pluginClassLoader);
+        } catch (SecurityException e) {
+            log.error("Security manager does not allow external plugin loading.", e);
+        } catch (ClassNotFoundException e) {
+            log.error("Plugin class not found.", e);
+        }
 
-            Arrays.stream(config.getDEBUG_loadClasses()).forEach(className -> {
-                try {
-                    Class<?> clazz = Class.forName(className, true, pluginClassLoader);
-                    log.info("Successfully loaded class {}", className);
-                } catch (ClassNotFoundException e) {
-                    log.error("Failed to load class {}", className, e);
-                }
-            });
+        if (pluginClass == null) {
+            log.error("Could not load main class {} from {}", metaData.getMainClass(), metaData.getName());
+            return null;
+        }
 
-            log.info("Classloader: {} <=> {}", pluginClassLoader, Thread.currentThread().getContextClassLoader());
-
+        try {
             if (GmcPlugin.class.isAssignableFrom(pluginClass)) {
                 // Get a plugin instance
                 Constructor<T> noArgsConstructor = (Constructor<T>) pluginClass.getDeclaredConstructor();
@@ -132,23 +142,17 @@ public class PluginLoader {
                 Field metaDataField = GmcPlugin.class.getDeclaredField("metaData");
                 boolean accessible = metaDataField.canAccess(plugin);
                 metaDataField.setAccessible(true);
-                metaDataField.set(plugin, config);
+                metaDataField.set(plugin, metaData);
                 metaDataField.setAccessible(accessible);
 
                 return plugin;
             }
 
-            log.warn("Could not load plugin {}. mainClass {} is not an instance of GmcPlugin.", pluginPath, config.getMainClass());
-        } catch (SecurityException e) {
-            log.error("Security manager does not allow external plugin loading.", e);
-        } catch (ClassNotFoundException e) {
-            log.error("Plugin class not found.", e);
+            log.warn("Could not load plugin {}. mainClass {} is not an instance of GmcPlugin.", pluginPath, metaData.getMainClass());
         } catch (NoSuchMethodException e) {
             log.error("Default plugin constructor not found.", e);
         } catch (InvocationTargetException | InstantiationException | IllegalAccessException | NoSuchFieldException e) {
             log.error("Failed to initialize the plugin using reflection.", e);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
 
         return null;
@@ -158,19 +162,12 @@ public class PluginLoader {
         Properties properties = new Properties();
         properties.load(inputStream);
 
-        String loadClasses = properties.getProperty("x-debug.loadClasses");
-        String[] DEBUG_loadClasses = new String[0];
-        if (loadClasses != null) {
-            DEBUG_loadClasses = loadClasses.split(",");
-        }
-
         PluginMetaData config = new PluginMetaData(
                 properties.getProperty("mainClass"),
                 properties.getProperty("name"),
                 properties.getProperty("version"),
                 properties.getProperty("author"),
-                properties.getProperty("description"),
-                DEBUG_loadClasses);
+                properties.getProperty("description"));
 
         if (!config.validate()) {
             throw new IllegalArgumentException("Invalid plugin configuration");
